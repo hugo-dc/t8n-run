@@ -96,7 +96,7 @@ struct Command {
 
 impl Command {
     pub fn from_string(st : String) -> Option<Command> {
-        let valid_commands = vec!["exit", "help", "extract"];
+        let valid_commands = vec!["exit", "help", "extract", "dir"];
 
         let input_command = st.clone();
         let input_command = input_command.trim();
@@ -125,6 +125,7 @@ impl Command {
 
     fn cmd_help(&self) {
         println!("\thelp\t\t\tShows this help");
+        println!("\tdir <path>\t\tSets <path> as the current working directory");
         println!("\textract <test>\t\tExtract context information from Ethereum State Test");
         println!("\texit\t\t\tExit");
     }
@@ -153,11 +154,25 @@ impl Command {
         }
     }
 
-    pub fn execute(&self) -> bool {
+    fn cmd_dir(&self, ctx: &mut Context) {
+        if self.command_params.len() != 1 {
+            println!("Error: 1 parameter expected (state test json file)");
+            return;
+        }
+
+        if ctx.set_work_dir(self.command_params[0].as_str()) {
+            println!("Working directory successfully changed to {}", ctx.work_dir);
+        } else {
+            println!("Error chainging working directory, check if directory exists");
+        }
+    }
+
+    pub fn execute(&self, ctx : &mut Context) -> bool {
         println!("Executing <{}>", self.command_name);
         match self.command_name.as_str() {
             "help" => self.cmd_help(),
             "extract" => self.cmd_extract(),
+            "dir" => self.cmd_dir(ctx),
             "exit" => return self.cmd_exit(),
             _ => self.cmd_unknown()
         }
@@ -187,8 +202,18 @@ impl Config {
             let mut file = fs::File::create(config_file_path).unwrap();
             file.write(default_working_dir.as_bytes());
 
+
             return default_working_dir;
         }
+    }
+
+    pub fn set(cfg_path : &str) {
+        let home_dir = home::home_dir().expect("Cannot determine HOME directory");
+        let config_file_path = String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.conf";
+        let mut file = fs::File::create(config_file_path).unwrap();
+        println!("Writing {} as default directory", cfg_path);
+        let result = file.write(cfg_path.as_bytes());
+        println!("result: {}", result.unwrap());
     }
 }
 
@@ -202,6 +227,15 @@ impl Context {
         Context {
             work_dir
         }
+    }
+
+    pub fn set_work_dir(&mut self, wd: &str) -> bool {
+        if ! Path::new(wd).exists() {
+            return false;
+        }
+        self.work_dir = wd.to_string();
+        Config::set(self.work_dir.as_str());
+        return true;
     }
 }
 
@@ -217,7 +251,7 @@ impl Repl {
         }
     }
 
-    pub fn run(&self) -> io::Result<()> {
+    pub fn run(&mut self) -> io::Result<()> {
         self.welcome_message();
         loop {
             let mut user_input = String::new();
@@ -230,7 +264,7 @@ impl Repl {
             let command = Command::from_string(user_input);
 
             if command.is_some() {
-                let exit = command.unwrap().execute();
+                let exit = command.unwrap().execute(&mut self.context);
 
                 if exit {
                     return Ok(())
@@ -249,6 +283,6 @@ impl Repl {
 }
 
 fn main() {
-    let repl = Repl::new();
+    let mut repl = Repl::new();
     repl.run();
 }
