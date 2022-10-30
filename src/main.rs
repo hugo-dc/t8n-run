@@ -8,7 +8,7 @@ use serde_json::{Result, Value};
 use serde::Deserialize;
 use home;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Info {
     comment: String,
     #[serde(rename="filling-rpc-server")]
@@ -23,7 +23,7 @@ struct Info {
     source_hash : String
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Env {
     #[serde(alias="currentBaseFee")]
     current_base_fee : String,
@@ -41,14 +41,28 @@ struct Env {
     previous_hash : String
 }
 
-#[derive(Debug, Deserialize)]
+impl Env {
+    pub fn new() -> Env {
+        Env {
+            current_base_fee : String::from("0x0a"),
+            current_coinbase : String::from("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba"),
+            current_difficulty : String::from("0x020000"),
+            current_gas_limit : String::from("0x05f5e100"),
+            current_number : String::from("0x01"),
+            current_timestamp : String::from("0x03e8"),
+            previous_hash : String::from("0x5e20a0453cecd065ea59c37ac63e079ee08998b6045136a8ce6635c7912ec0b6")
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
 struct Indexes {
     data : u64,
     gas : u64,
     value : u64,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct Post {
     hash : String,
     indexes: Indexes,
@@ -56,15 +70,27 @@ struct Post {
     txbytes: String
 }
 
-#[derive(Debug, Deserialize)]
-struct Pre {
-    balance: String,
-    code: String,
+#[derive(Debug, Deserialize, Clone)]
+struct TransactionT8n {
+    input : String,
+    gas: String,
+    #[serde(alias="gasPrice")]
+    gas_price: String,
     nonce: String,
-    storage: HashMap<String, String>
+    to: String,
+    value: String,
+    v: String,
+    r: String,
+    s: String,
+    #[serde(alias="gasPrice")]
+    secret_key: String,
+    #[serde(alias="chainId")]
+    chain_id : String,
+    #[serde(alias="type")]
+    tx_type: Option<String>
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct Transaction {
     data : Vec<String>,
     #[serde(alias="gasLimit")]
@@ -79,13 +105,13 @@ struct Transaction {
     value : Vec<String>
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct StateTestContent {
     #[serde(rename="_info")]
     info : Info,
     env : Env,
     post: HashMap<String, Vec<Post>>,
-    pre: HashMap<String, Pre>,
+    pre: HashMap<String, Alloc>,
     transaction: Transaction
 }
 
@@ -96,7 +122,7 @@ struct Command {
 
 impl Command {
     pub fn from_string(st : String) -> Option<Command> {
-        let valid_commands = vec!["exit", "help", "extract", "dir"];
+        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "setHardFork"];
 
         let input_command = st.clone();
         let input_command = input_command.trim();
@@ -127,6 +153,9 @@ impl Command {
         println!("\thelp\t\t\tShows this help");
         println!("\tdir <path>\t\tSets <path> as the current working directory");
         println!("\textract <test>\t\tExtract context information from Ethereum State Test");
+        println!("\tsetHardFork <hf_name>\tSet HardFork");
+        println!("\talloc\t\t\tShow current allocation data");
+        println!("\trun\t\t\tExecute test case");
         println!("\texit\t\t\tExit");
     }
 
@@ -139,7 +168,7 @@ impl Command {
         return true;
     }
 
-    fn cmd_extract(&self){
+    fn cmd_extract(&self, ctx: &mut Context){
         if self.command_params.len() != 1 {
             println!("Error: 1 parameter expected (state test json file)");
             return;
@@ -148,7 +177,37 @@ impl Command {
 
         if json_file.is_ok() {
             let json: HashMap<String, StateTestContent>  = serde_json::from_reader(BufReader::new(json_file.unwrap())).unwrap();
-            println!("{:?}", json);
+            let json_clone = json.clone();
+            let test_name: String = json_clone.into_keys().collect(); 
+            let state_test = json[test_name.as_str()].clone();
+            let transaction = state_test.transaction.clone();
+            ctx.alloc = state_test.pre.clone();
+            ctx.env = state_test.env.clone();
+
+            let mut txs : Vec<TransactionT8n> = Vec::new();
+
+            for (i, d) in transaction.data.iter().enumerate() {
+                let tx_st = transaction.clone();
+                let tx_ctx = TransactionT8n {
+                    input: d.to_string(),
+                    gas: transaction.gas_limit[i].clone(),
+                    gas_price: tx_st.gas_price,
+                    nonce: tx_st.nonce,
+                    to: tx_st.to,
+                    value: transaction.value[i].clone(),
+                    v: String::from("0x0"),
+                    r: String::from("0x0"),
+                    s: String::from("0x0"),
+                    secret_key: tx_st.secret_key,
+                    chain_id: String::from("0x1"),
+                    tx_type: Some(String::from("0x1"))
+                };
+
+                txs.push(tx_ctx);
+            }
+            ctx.txs = txs;
+            println!("Context information extracted correctly!");
+
         } else {
             println!("Error, cannot open file `{}`", self.command_params[0]);
         }
@@ -163,16 +222,32 @@ impl Command {
         if ctx.set_work_dir(self.command_params[0].as_str()) {
             println!("Working directory successfully changed to {}", ctx.work_dir);
         } else {
-            println!("Error chainging working directory, check if directory exists");
+            println!("Error changing working directory, check if directory exists");
         }
+    }
+
+    fn cmd_alloc(&self, ctx: &mut Context) {
+        ctx.print_alloc();
+    }
+
+    fn cmd_set_hard_fork(&self, ctx: &mut Context) {
+        if self.command_params.len() != 1 {
+            println!("Error: 1 parameter expected (HardFork name)");
+            return;
+        }
+
+        ctx.set_hard_fork(self.command_params[0].as_str());
+        println!("HardFork `{}` configured!", ctx.hard_fork);
     }
 
     pub fn execute(&self, ctx : &mut Context) -> bool {
         println!("Executing <{}>", self.command_name);
         match self.command_name.as_str() {
             "help" => self.cmd_help(),
-            "extract" => self.cmd_extract(),
+            "extract" => self.cmd_extract(ctx),
             "dir" => self.cmd_dir(ctx),
+            "alloc" => self.cmd_alloc(ctx),
+            "setHardFork" => self.cmd_set_hard_fork(ctx),
             "exit" => return self.cmd_exit(),
             _ => self.cmd_unknown()
         }
@@ -217,15 +292,32 @@ impl Config {
     }
 }
 
+
+#[derive(Deserialize, Debug, Clone)]
+struct Alloc {
+    balance: String,
+    code: String,
+    nonce: String,
+    storage: HashMap<String, String>
+}
+
 struct Context {
-    work_dir : String
+    work_dir : String,
+    hard_fork : String,
+    alloc : HashMap<String, Alloc>,
+    env : Env,
+    txs: Vec<TransactionT8n>
 }
 
 impl Context {
     pub fn default() -> Context {
         let work_dir = Config::get();
         Context {
-            work_dir
+            work_dir,
+            hard_fork: String::new(),
+            alloc: HashMap::new(),
+            env: Env::new(),
+            txs: Vec::new()
         }
     }
 
@@ -236,6 +328,14 @@ impl Context {
         self.work_dir = wd.to_string();
         Config::set(self.work_dir.as_str());
         return true;
+    }
+
+    pub fn set_hard_fork(&mut self, hf: &str) {
+        self.hard_fork = hf.to_string();
+    }
+
+    pub fn print_alloc(&mut self) {
+        println!("{:?}", self.alloc);
     }
 }
 
@@ -257,7 +357,9 @@ impl Repl {
             let mut user_input = String::new();
             let stdin = io::stdin();
             let mut stdout = io::stdout();
-            stdout.write(String::from("> ").as_bytes());
+            let mut prompt = String::from(self.context.hard_fork.as_str());
+            prompt.push_str(" > ");
+            stdout.write(prompt.as_bytes());
             stdout.flush();
             stdin.read_line(&mut user_input)?;
 
