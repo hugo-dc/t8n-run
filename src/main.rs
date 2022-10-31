@@ -122,7 +122,7 @@ struct Command {
 
 impl Command {
     pub fn from_string(st : String) -> Option<Command> {
-        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "env", "txs", "setHardFork"];
+        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "env", "txs", "hf"];
 
         let input_command = st.clone();
         let input_command = input_command.trim();
@@ -151,7 +151,7 @@ impl Command {
         println!("\thelp\t\t\tShows this help");
         println!("\tdir <path>\t\tSets <path> as the current working directory");
         println!("\textract <test>\t\tExtract context information from Ethereum State Test");
-        println!("\tsetHardFork <hf_name>\tSet HardFork");
+        println!("\thf <hf_name>\tSet HardFork");
         println!("\tt8n <t8n path>\t\tSet t8n tool path");
         println!("\tt8nFlag <t8n_flag>\tSet t8n tool flag (if needed)");
         println!("\talloc\t\t\tShow current allocation data");
@@ -222,7 +222,7 @@ impl Command {
         }
 
         if ctx.set_work_dir(self.command_params[0].as_str()) {
-            println!("Working directory successfully changed to {}", ctx.work_dir);
+            println!("Working directory successfully changed to {}", ctx.config.work_dir);
         } else {
             println!("Error changing working directory, check if directory exists");
         }
@@ -234,8 +234,12 @@ impl Command {
             return;
         }
 
-        ctx.set_hard_fork(self.command_params[0].as_str());
-        println!("HardFork `{}` configured!", ctx.hard_fork);
+        ctx.config.hard_fork = self.command_params[0].clone();
+        ctx.config.save();
+        println!("HardFork `{}` configured!", ctx.config.hard_fork);
+    }
+
+    fn cmd_run(&self, ctx: &mut Context) {
     }
 
     pub fn execute(&self, ctx : &mut Context) -> bool {
@@ -246,7 +250,8 @@ impl Command {
             "alloc" => ctx.print_alloc(),
             "env" => ctx.print_env(),
             "txs" => ctx.print_txs(),
-            "setHardFork" => self.cmd_set_hard_fork(ctx),
+            "hf" => self.cmd_set_hard_fork(ctx),
+            "run" => self.cmd_run(ctx),
             "exit" => return self.cmd_exit(),
             _ => self.cmd_unknown()
         }
@@ -256,23 +261,17 @@ impl Command {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 struct Config {
-    work_dir: String
+    work_dir: String,
+    t8n: String,
+    t8n_flag: String,
+    hard_fork: String
 }
 
 impl Config {
-    fn get_default_working_dir() -> String {
-      let home_dir = home::home_dir().expect("Cannot determine HOME directory");
-      return String::from(home_dir.to_str().unwrap()) + "/t8n-repl";
-    }
-
-    fn get_config_file_path() -> String {
-      let home_dir = home::home_dir().expect("Cannot determine HOME directory");
-      return String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.json";
-    }
-
-    fn save(cfg: Config) -> bool {
-        let config_str = serde_json::to_string(&cfg).unwrap();
-        let config_file_path = Config::get_config_file_path();
+    fn save(&self) -> bool {
+        let home_dir = home::home_dir().expect("Cannot determine HOME directory");
+        let config_file_path = String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.json";
+        let config_str = serde_json::to_string(&self).unwrap();
         let mut file = fs::File::create(config_file_path).unwrap();
         if file.write(config_str.as_bytes()).is_err() {
             return false;
@@ -281,35 +280,40 @@ impl Config {
         }
     }
 
-    pub fn get() -> Config {
-        let config_file_path = Config::get_config_file_path();
+    pub fn new() -> Config {
+        let home_dir = home::home_dir().expect("Cannot determine HOME directory");
+        let config_file_path = String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.json";
         let config_file = fs::File::open(config_file_path.as_str());
         if config_file.is_ok() {
             let config: Config = serde_json::from_reader(BufReader::new(config_file.unwrap())).unwrap();
             return config;
         } else {
-            let default_working_dir = Config::get_default_working_dir();
+            let home_dir = home::home_dir().expect("Cannot determine HOME directory");
+            let default_working_dir = String::from(home_dir.to_str().unwrap()) + "/t8n-repl";
+
             let working_dir_path = Path::new(default_working_dir.as_str()); 
             if ! working_dir_path.exists() {
                 fs::create_dir(working_dir_path).expect("Error creating default working directory");
             }
             let config = Config {
-               work_dir : working_dir_path.to_str().unwrap().to_string()
+               work_dir : working_dir_path.to_str().unwrap().to_string(),
+               t8n: String::from("/usr/bin/evm"),
+               t8n_flag : String::from(""),
+               hard_fork: String::from("")
             };
 
-            Config::save(config.clone());
+            config.save();
             return config;
         }
     }
 
-    pub fn set_work_dir(wdir_path : &str) {
+    pub fn set_work_dir(&mut self, wdir_path : &str) {
         let home_dir = home::home_dir().expect("Cannot determine HOME directory");
         let config_file_path = String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.json";
-        let mut config = Config::get();
 
-        config.work_dir = wdir_path.to_string();
+        self.work_dir = wdir_path.to_string();
         println!("Writing {} as default directory", wdir_path);
-        if Config::save(config) {
+        if self.save() {
             println!("Configuration saved!");
         } else {
             println!("Error saving configuration");
@@ -327,8 +331,7 @@ struct Alloc {
 }
 
 struct Context {
-    work_dir : String,
-    hard_fork : String,
+    config : Config,
     alloc : HashMap<String, Alloc>,
     env : Env,
     txs: Vec<TransactionT8n>
@@ -336,10 +339,8 @@ struct Context {
 
 impl Context {
     pub fn default() -> Context {
-        let work_dir = Config::get().work_dir;
         Context {
-            work_dir,
-            hard_fork: String::new(),
+            config: Config::new(),
             alloc: HashMap::new(),
             env: Env::new(),
             txs: Vec::new()
@@ -350,13 +351,8 @@ impl Context {
         if ! Path::new(wd).exists() {
             return false;
         }
-        self.work_dir = wd.to_string();
-        Config::set_work_dir(self.work_dir.as_str());
+        self.config.work_dir = wd.to_string();
         return true;
-    }
-
-    pub fn set_hard_fork(&mut self, hf: &str) {
-        self.hard_fork = hf.to_string();
     }
 
     pub fn print_alloc(&self) {
@@ -390,7 +386,7 @@ impl Repl {
             let mut user_input = String::new();
             let stdin = io::stdin();
             let mut stdout = io::stdout();
-            let mut prompt = String::from(self.context.hard_fork.as_str());
+            let mut prompt = String::from(self.context.config.hard_fork.as_str());
             prompt.push_str(" > ");
             stdout.write(prompt.as_bytes());
             stdout.flush();
@@ -412,7 +408,8 @@ impl Repl {
 
     fn welcome_message(&self) {
         println!("Welcome to t8n-repl");
-        println!("Default working directory {}", self.context.work_dir);
+        println!("Default working directory {}", self.context.config.work_dir);
+        println!("t8n tool: {} {}", self.context.config.t8n, self.context.config.t8n_flag);
     }
 }
 
