@@ -5,7 +5,7 @@ use std::path::Path;
 use std::io::BufReader;
 use std::collections::HashMap;
 use serde_json::{Result, Value};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use home;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -122,7 +122,7 @@ struct Command {
 
 impl Command {
     pub fn from_string(st : String) -> Option<Command> {
-        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "setHardFork"];
+        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "env", "txs", "setHardFork"];
 
         let input_command = st.clone();
         let input_command = input_command.trim();
@@ -141,8 +141,6 @@ impl Command {
             }
         }
 
-        println!("cmd: <{}>", cmd);
-        println!("params: <{}>", params.len());
         if valid_commands.iter().find(|&&s| s == cmd.as_str()).is_some() {
            return Some(Command { command_name : cmd, command_params: params });
         }
@@ -154,7 +152,11 @@ impl Command {
         println!("\tdir <path>\t\tSets <path> as the current working directory");
         println!("\textract <test>\t\tExtract context information from Ethereum State Test");
         println!("\tsetHardFork <hf_name>\tSet HardFork");
+        println!("\tt8n <t8n path>\t\tSet t8n tool path");
+        println!("\tt8nFlag <t8n_flag>\tSet t8n tool flag (if needed)");
         println!("\talloc\t\t\tShow current allocation data");
+        println!("\tenv\t\t\tShow current environment");
+        println!("\ttxs\t\t\tShow current transactions");
         println!("\trun\t\t\tExecute test case");
         println!("\texit\t\t\tExit");
     }
@@ -226,10 +228,6 @@ impl Command {
         }
     }
 
-    fn cmd_alloc(&self, ctx: &mut Context) {
-        ctx.print_alloc();
-    }
-
     fn cmd_set_hard_fork(&self, ctx: &mut Context) {
         if self.command_params.len() != 1 {
             println!("Error: 1 parameter expected (HardFork name)");
@@ -241,12 +239,13 @@ impl Command {
     }
 
     pub fn execute(&self, ctx : &mut Context) -> bool {
-        println!("Executing <{}>", self.command_name);
         match self.command_name.as_str() {
             "help" => self.cmd_help(),
             "extract" => self.cmd_extract(ctx),
             "dir" => self.cmd_dir(ctx),
-            "alloc" => self.cmd_alloc(ctx),
+            "alloc" => ctx.print_alloc(),
+            "env" => ctx.print_env(),
+            "txs" => ctx.print_txs(),
             "setHardFork" => self.cmd_set_hard_fork(ctx),
             "exit" => return self.cmd_exit(),
             _ => self.cmd_unknown()
@@ -255,40 +254,66 @@ impl Command {
     }
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
 struct Config {
-    config_path: String
+    work_dir: String
 }
 
 impl Config {
-    pub fn get() -> String {
-        let home_dir = home::home_dir().expect("Cannot determine HOME directory");
-        let config_file_path = String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.conf";
-        
-        let config = fs::read_to_string(config_file_path.clone());
-        if config.is_ok() {
-            return config.unwrap();
+    fn get_default_working_dir() -> String {
+      let home_dir = home::home_dir().expect("Cannot determine HOME directory");
+      return String::from(home_dir.to_str().unwrap()) + "/t8n-repl";
+    }
+
+    fn get_config_file_path() -> String {
+      let home_dir = home::home_dir().expect("Cannot determine HOME directory");
+      return String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.json";
+    }
+
+    fn save(cfg: Config) -> bool {
+        let config_str = serde_json::to_string(&cfg).unwrap();
+        let config_file_path = Config::get_config_file_path();
+        let mut file = fs::File::create(config_file_path).unwrap();
+        if file.write(config_str.as_bytes()).is_err() {
+            return false;
         } else {
-            let default_working_dir = String::from(home_dir.to_str().unwrap()) + "/t8n-repl";
-            let working_dir_path = Path::new(default_working_dir.as_str());
-
-            if ! working_dir_path.exists() {
-                fs::create_dir(working_dir_path).expect("Error creating default working directory");
-            }
-            let mut file = fs::File::create(config_file_path).unwrap();
-            file.write(default_working_dir.as_bytes());
-
-
-            return default_working_dir;
+            return true;
         }
     }
 
-    pub fn set(cfg_path : &str) {
+    pub fn get() -> Config {
+        let config_file_path = Config::get_config_file_path();
+        let config_file = fs::File::open(config_file_path.as_str());
+        if config_file.is_ok() {
+            let config: Config = serde_json::from_reader(BufReader::new(config_file.unwrap())).unwrap();
+            return config;
+        } else {
+            let default_working_dir = Config::get_default_working_dir();
+            let working_dir_path = Path::new(default_working_dir.as_str()); 
+            if ! working_dir_path.exists() {
+                fs::create_dir(working_dir_path).expect("Error creating default working directory");
+            }
+            let config = Config {
+               work_dir : working_dir_path.to_str().unwrap().to_string()
+            };
+
+            Config::save(config.clone());
+            return config;
+        }
+    }
+
+    pub fn set_work_dir(wdir_path : &str) {
         let home_dir = home::home_dir().expect("Cannot determine HOME directory");
-        let config_file_path = String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.conf";
-        let mut file = fs::File::create(config_file_path).unwrap();
-        println!("Writing {} as default directory", cfg_path);
-        let result = file.write(cfg_path.as_bytes());
-        println!("result: {}", result.unwrap());
+        let config_file_path = String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.json";
+        let mut config = Config::get();
+
+        config.work_dir = wdir_path.to_string();
+        println!("Writing {} as default directory", wdir_path);
+        if Config::save(config) {
+            println!("Configuration saved!");
+        } else {
+            println!("Error saving configuration");
+        }
     }
 }
 
@@ -311,7 +336,7 @@ struct Context {
 
 impl Context {
     pub fn default() -> Context {
-        let work_dir = Config::get();
+        let work_dir = Config::get().work_dir;
         Context {
             work_dir,
             hard_fork: String::new(),
@@ -326,7 +351,7 @@ impl Context {
             return false;
         }
         self.work_dir = wd.to_string();
-        Config::set(self.work_dir.as_str());
+        Config::set_work_dir(self.work_dir.as_str());
         return true;
     }
 
@@ -334,8 +359,16 @@ impl Context {
         self.hard_fork = hf.to_string();
     }
 
-    pub fn print_alloc(&mut self) {
+    pub fn print_alloc(&self) {
         println!("{:?}", self.alloc);
+    }
+
+    pub fn print_env(&self) {
+        println!("{:?}", self.env);
+    }
+
+    pub fn print_txs(&self) {
+        println!("{:?}", self.txs);
     }
 }
 
@@ -380,7 +413,6 @@ impl Repl {
     fn welcome_message(&self) {
         println!("Welcome to t8n-repl");
         println!("Default working directory {}", self.context.work_dir);
-        println!("Loaded default account ");
     }
 }
 
