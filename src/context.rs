@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::io::BufReader;
+use std::io::Write;
 use std::path::Path;
+use std::process::Command;
 use std::fs;
 use serde::{Deserialize, Serialize};
 
@@ -160,6 +162,68 @@ impl Context {
         }
         self.config.work_dir = wd.to_string();
         return true;
+    }
+
+    pub fn run(&self) {
+      let work_dir = &self.config.work_dir.clone();
+
+      // Save json files
+      let alloc = &self.alloc.clone();
+      let alloc_str = serde_json::to_string(&alloc).unwrap();
+      let alloc_file_path = work_dir.clone() + "/alloc.json";
+      let mut file = fs::File::create(alloc_file_path).unwrap();
+      file.write(alloc_str.as_bytes()).expect("Error writing alloc.json file");
+
+
+      let env = &self.env.clone();
+      let env_str = serde_json::to_string(&env).unwrap();
+      let env_file_path = work_dir.clone() + "/env.json";
+      let mut file = fs::File::create(env_file_path).unwrap();
+      file.write(env_str.as_bytes()).expect("Error writing env.json file");
+
+      let txs = &self.txs.clone();
+      let txs_str = serde_json::to_string(&txs).unwrap();
+      let txs_file_path = work_dir.clone() + "/txs.json";
+      let mut file = fs::File::create(txs_file_path).unwrap();
+      file.write(txs_str.as_bytes()).expect("Error writing txs.json file");
+
+      // Execute t8n tool
+      let fork_flag = String::from("--state.fork=") + &self.config.hard_fork.as_str();
+      let alloc_flag = String::from("--input.alloc=") + work_dir.as_str() + "/alloc.json";
+      let env_flag = String::from("--input.env=") + work_dir.as_str() + "/env.json";
+      let txs_flag = String::from("--input.txs=") + work_dir.as_str() + "/txs.json";
+      let result_flag = String::from("--output.result=") + "alloc_jsontx.json";
+      let body_flag = String::from("--output.body=") + "/signed_txs.rlp";
+      let basedir_flag = String::from("--output.basedir=") + work_dir.as_str();
+      let trace_flag = String::from("--trace");
+
+      let mut args: Vec<String> = Vec::new();
+
+      if &self.config.evm.as_str() != &"" {
+        let vm_flag = String::from("--vm.evm=") + &self.config.evm.as_str();
+        args.push(vm_flag);
+      }
+
+      args.push("t8n".to_string());
+      args.push(fork_flag);
+      args.push(alloc_flag);
+      args.push(env_flag);
+      args.push(txs_flag);
+      args.push(result_flag);
+      args.push(body_flag);
+      args.push(basedir_flag);
+      args.push(trace_flag);
+
+      let mut cmd = Command::new(&self.config.t8n.clone());
+      cmd.args(args.clone());
+
+      let output = cmd.output().unwrap();
+      let output_text = String::from_utf8(output.stdout).unwrap();
+      let error_text = String::from_utf8(output.stderr).unwrap();
+      println!("{}", output_text);
+      println!("{}", error_text);
+
+      // TODO: Read trace output
     }
 
     pub fn print_alloc(&self) {

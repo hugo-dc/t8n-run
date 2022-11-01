@@ -1,4 +1,4 @@
-use t8n::*;
+use t8n::context::Context;
 
 use clap::Parser;
 
@@ -16,5 +16,15 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    println!("Args: {:?}", args);
+    let context_result = Context::from_state_test(args.state_test.as_str());
+
+    if context_result.is_ok() {
+        let mut context = context_result.unwrap();
+        if args.evm.is_some() {
+            context.config.evm = args.evm.unwrap().to_string();
+        }
+        context.run();
+    } else {
+        println!("Error getting information from state test file");
+    }
 }
