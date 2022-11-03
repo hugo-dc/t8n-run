@@ -3,7 +3,7 @@ use std::process::Command;
 use std::io::Write;
 use std::fs;
 
-use crate::context::Context;
+use crate::context::{Alloc, Context, TransactionT8n};
 
 struct ReplCommand {
     command_name: String,
@@ -12,7 +12,7 @@ struct ReplCommand {
 
 impl ReplCommand {
     pub fn from_string(st : String) -> Option<ReplCommand> {
-        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "env", "txs", "hf", "run", "t8n", "evm"];
+        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "alloc.add", "alloc.add.default", "addcode", "env", "txs", "tx.new", "tx.set.sender", "tx.set.receiver", "hf", "run", "save", "load", "t8n", "evm"];
 
         let input_command = st.clone();
         let input_command = input_command.trim();
@@ -37,17 +37,33 @@ impl ReplCommand {
         return None;
     }
 
+    fn check_params(&self, total: usize, param_names: &str) -> Result<(), ()>{
+        if self.command_params.len() != total {
+            println!("Error: Expected {} parameters ({}).", total, param_names);
+            return Err(())
+        }
+        return Ok(())
+    }
+
     fn cmd_help(&self) {
         println!("\thelp\t\t\tShows this help");
         println!("\tdir <path>\t\tSets <path> as the current working directory");
         println!("\textract <test>\t\tExtract context information from Ethereum State Test");
-        println!("\thf <hf_name>\tSet HardFork");
+        println!("\thf <hf_name>\t\tSet HardFork");
         println!("\tt8n <t8n path>\t\tSet t8n tool path");
-        println!("\tevm <evm_path>\tSet custom EVMC vm");
+        println!("\tevm <evm_path>\t\tSet custom EVMC vm");
         println!("\talloc\t\t\tShow current allocation data");
+        println!("\talloc.add [address]\tCreates new account");
+        println!("\talloc.add.default\tCreates default account");
+        println!("\taddcode <address> <bytecode>\tAssigns <code> to <account>");
         println!("\tenv\t\t\tShow current environment");
         println!("\ttxs\t\t\tShow current transactions");
+        println!("\ttx.new\t\t\tCreate (empty) transaction");
+        println!("\ttx.set.sender <ix> <address>\tSet <address>'s secret key in transaction with index <ix>");
+        println!("\ttx.set.receiver <ix>\tSet <address> as the receiver in transaction with index <ix>"); 
         println!("\trun\t\t\tExecute test case");
+        println!("\tsave <filename>\t\tSaves current session to json file");
+        println!("\tload <filename>\t\tReload previous session from json file");
         println!("\texit\t\t\tExit");
     }
 
@@ -66,7 +82,7 @@ impl ReplCommand {
             return;
         }
 
-        let mut c = Context::from_state_test(self.command_params[0].as_str());
+        let c = Context::from_state_test(self.command_params[0].as_str());
 
         if c.is_ok() {
             let new_context = c.unwrap();
@@ -132,18 +148,153 @@ impl ReplCommand {
       println!("Configured evm {}", ctx.config.evm);
     }
 
+    fn cmd_add_account(&self, ctx: &mut Context) {
+        let mut address = "0x0000000000000000000000000000000000000100";
+        if self.command_params.len() == 1 {
+            address = self.command_params[0].as_str();
+        } 
+        if self.command_params.len() > 1 {
+            println!("Error: Expected a maximum of 1 parameter (address)");
+            return;
+        }
+
+        if ctx.add_address(address).is_ok() {
+            println!("New address added with default fields");
+        } else {
+            println!("Error creating new address");
+        }
+    }
+
+    fn cmd_add_default_account(&self, ctx: &mut Context) {
+        if ctx.add_default_address().is_ok() {
+            println!("Added default address");
+        } else {
+            println!("Error creating default address");
+        }
+    }
+
+    fn cmd_add_code(&self, ctx: &mut Context) {
+        if self.command_params.len() != 2 {
+            println!("Error: Expected 2 parameters (address, code)");
+            return;
+        }
+        let address = self.command_params[0].clone();
+        let code = self.command_params[1].clone();
+
+        if ctx.alloc.contains_key(&address) {
+            let mut account: Alloc = ctx.alloc.get(&address).unwrap().clone();
+            if account.set_code(code).is_ok() {
+                if ctx.alloc.remove(&address).is_some() {
+                    ctx.alloc.insert(address, account.to_owned());
+                }
+            } else {
+                println!("Error setting account's code");
+            }
+        } else {
+            println!("Address {} not found!", address);
+        }
+    }
+
+    fn cmd_new_tx(&self, ctx: &mut Context) {
+        ctx.txs.push(TransactionT8n::default());
+    }
+
+    fn cmd_tx_set_sender(&self, ctx: &mut Context) {
+        if self.check_params(2, "index, address").is_err() {
+            return;
+        }
+        let index = self.command_params[0].clone();
+        let index = index.parse::<i32>();
+
+        if index.is_ok() {
+            let index = index.unwrap();
+            let address = self.command_params[1].as_str();
+            if ctx.txs.len() > (index as usize) && index >= 0 {
+                let pk = ctx.get_secret_key(address.to_string());
+
+                if pk.is_some() {
+                    ctx.txs[index as usize].set_private_key(pk.unwrap().as_str());
+                } else {
+                    println!("Account not found or does not contain private key");
+                }
+            } else {
+                println!("Transaction not found!");
+            }
+        } else {
+            println!("Index {} is not valid!", self.command_params[0]);
+        }
+    }
+
+    fn cmd_tx_set_receiver(&self, ctx: &mut Context) {
+        if self.check_params(2, "index, address").is_err() {
+            return;
+        }
+        let index = self.command_params[0].clone();
+        let index = index.parse::<i32>();
+
+        if index.is_ok() {
+            let index = index.unwrap();
+            let address = self.command_params[1].as_str();
+            if ctx.txs.len() > (index as usize) && index >= 0 {
+                if ctx.address_exists(address) {
+                    ctx.txs[index as usize].set_receiver(address);
+                    println!("Receiver configured!");
+                } else {
+                    println!("Error: Address {} does not exists", address);
+                }
+            } else {
+                println!("Transaction not found!");
+            }
+        } else {
+            println!("Index {} is not valid!", self.command_params[0]);
+        }
+
+    }
+
+    fn cmd_save(&self, ctx: &mut Context) {
+       if self.check_params(1, "filename").is_err() {
+           return
+       }
+       let fname = self.command_params[0].as_str();
+       if ctx.save(fname).is_ok() {
+           println!("Context saved {}", fname);
+       } else {
+           println!("Error saving context");
+       }
+    }
+
+    fn cmd_load(&self, ctx: &mut Context) {
+        if self.check_params(1, "filename").is_err() {
+            return
+        }
+        let fname = self.command_params[0].as_str();
+        if ctx.load(fname).is_ok() {
+            println!("Context loaded correctly");
+        } else {
+            println!("Error loading context from file {}", fname);
+        }
+    }
+
     pub fn execute(&self, ctx : &mut Context) -> bool {
         match self.command_name.as_str() {
             "help" => self.cmd_help(),
             "extract" => self.cmd_extract(ctx),
             "dir" => self.cmd_dir(ctx),
             "alloc" => ctx.print_alloc(),
+            "alloc.add" => self.cmd_add_account(ctx),
+            "alloc.add.default" => self.cmd_add_default_account(ctx),
+            "addcode" => self.cmd_add_code(ctx),
             "env" => ctx.print_env(),
             "txs" => ctx.print_txs(),
+            "tx.new" => self.cmd_new_tx(ctx),
+            "tx.set.sender" => self.cmd_tx_set_sender(ctx),
+            "tx.set.receiver" => self.cmd_tx_set_receiver(ctx),
             "hf" => self.cmd_set_hard_fork(ctx),
             "t8n" => self.cmd_set_t8n(ctx),
             "evm" => self.cmd_set_evm(ctx),
             "run" => self.cmd_run(ctx),
+            "save" => self.cmd_save(ctx),
+            "load" => self.cmd_load(ctx),
             "exit" => return self.cmd_exit(),
             _ => self.cmd_unknown()
         }
