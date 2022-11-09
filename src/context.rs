@@ -86,6 +86,10 @@ impl TransactionT8n {
   pub fn set_receiver(&mut self, address: &str) {
     self.to = Some(address.to_string());
   }
+
+  pub fn set_input(&mut self, input_data: &str) {
+    self.input = input_data.to_string();
+  }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

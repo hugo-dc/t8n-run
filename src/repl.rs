@@ -12,7 +12,7 @@ struct ReplCommand {
 
 impl ReplCommand {
     pub fn from_string(st : String) -> Option<ReplCommand> {
-        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "alloc.add", "alloc.add.default", "addcode", "env", "txs", "tx.new", "tx.set.sender", "tx.set.receiver", "hf", "run", "save", "load", "t8n", "evm"];
+        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "alloc.add", "alloc.add.default", "addcode", "env", "txs", "tx.new", "tx.set.sender", "tx.set.receiver", "tx.set.input", "hf", "run", "save", "load", "t8n", "evm"];
 
         let input_command = st.clone();
         let input_command = input_command.trim();
@@ -61,6 +61,7 @@ impl ReplCommand {
         println!("\ttx.new\t\t\tCreate (empty) transaction");
         println!("\ttx.set.sender <ix> <address>\tSet <address>'s secret key in transaction with index <ix>");
         println!("\ttx.set.receiver <ix>\tSet <address> as the receiver in transaction with index <ix>"); 
+        println!("\ttx.set.input <ix> <input>\t Set transaction data (<input>) in transaction with index <ix>");
         println!("\trun\t\t\tExecute test case");
         println!("\tsave <filename>\t\tSaves current session to json file");
         println!("\tload <filename>\t\tReload previous session from json file");
@@ -251,6 +252,31 @@ impl ReplCommand {
 
     }
 
+    fn cmd_tx_set_input(&self, ctx: &mut Context) {
+        if self.check_params(2, "index, input data").is_err() {
+            return;
+        }
+
+        let index = self.command_params[0].clone();
+        let index = index.parse::<i32>();
+
+        if index.is_ok() {
+            let index = index.unwrap();
+            let input_data = self.command_params[1].as_str();
+            if ctx.txs.len() > (index as usize) && index >= 0 {
+                ctx.txs[index as usize].set_input(input_data);
+                println!("Transaction input configured!");
+            } else {
+                println!("Transaction not found!");
+            }
+        } else {
+            println!("Index {} is not valid!", self.command_params[0]);
+        }
+
+        let input_data = self.command_params[0].clone();
+
+    }
+
     fn cmd_save(&self, ctx: &mut Context) {
        if self.check_params(1, "filename").is_err() {
            return
@@ -289,6 +315,7 @@ impl ReplCommand {
             "tx.new" => self.cmd_new_tx(ctx),
             "tx.set.sender" => self.cmd_tx_set_sender(ctx),
             "tx.set.receiver" => self.cmd_tx_set_receiver(ctx),
+            "tx.set.input" => self.cmd_tx_set_input(ctx),
             "hf" => self.cmd_set_hard_fork(ctx),
             "t8n" => self.cmd_set_t8n(ctx),
             "evm" => self.cmd_set_evm(ctx),
