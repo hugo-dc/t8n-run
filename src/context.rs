@@ -90,6 +90,10 @@ impl TransactionT8n {
   pub fn set_input(&mut self, input_data: &str) {
     self.input = input_data.to_string();
   }
+
+  pub fn set_value(&mut self, value: &str) {
+    self.value = value.to_string();
+  }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -122,6 +126,7 @@ impl Alloc {
     }
 }
 
+#[serde_with::skip_serializing_none]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Env {
     #[serde(rename="currentBaseFee")]
@@ -136,6 +141,8 @@ pub struct Env {
     current_number : String,
     #[serde(rename="currentTimestamp")]
     current_timestamp : String,
+    #[serde(rename="currentRandom")]
+    current_random : Option<String>,
     #[serde(rename="previousHash")]
     previous_hash : String
 }
@@ -149,8 +156,17 @@ impl Env {
             current_gas_limit : String::from("0x05f5e100"),
             current_number : String::from("0x01"),
             current_timestamp : String::from("0x03e8"),
+            current_random : None,
             previous_hash : String::from("0x5e20a0453cecd065ea59c37ac63e079ee08998b6045136a8ce6635c7912ec0b6")
         }
+    }
+
+    pub fn set_current_random(&mut self, cr: String) {
+        self.current_random = Some(cr);
+    }
+
+    pub fn set_current_difficulty(&mut self, diff: String) {
+        self.current_difficulty = diff;
     }
 }
 

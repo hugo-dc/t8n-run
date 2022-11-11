@@ -12,7 +12,7 @@ struct ReplCommand {
 
 impl ReplCommand {
     pub fn from_string(st : String) -> Option<ReplCommand> {
-        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "alloc.add", "alloc.add.default", "addcode", "env", "txs", "tx.new", "tx.set.sender", "tx.set.receiver", "tx.set.input", "hf", "run", "save", "load", "t8n", "evm"];
+        let valid_commands = vec!["exit", "help", "extract", "dir", "alloc", "alloc.add", "alloc.add.default", "addcode", "env", "env.set.difficulty", "env.set.currentrandom", "txs", "tx.new", "tx.set.sender", "tx.set.receiver", "tx.set.input", "tx.set.value", "hf", "run", "save", "load", "t8n", "evm"];
 
         let input_command = st.clone();
         let input_command = input_command.trim();
@@ -57,11 +57,14 @@ impl ReplCommand {
         println!("\talloc.add.default\tCreates default account");
         println!("\taddcode <address> <bytecode>\tAssigns <code> to <account>");
         println!("\tenv\t\t\tShow current environment");
+        println!("\tenv.set.difficulty <difficulty>\t\t\tSet current difficulty");
+        println!("\tenv.set.currentrandom [currentRandom]\tSet currentRandom for post-Merge transactions");
         println!("\ttxs\t\t\tShow current transactions");
         println!("\ttx.new\t\t\tCreate (empty) transaction");
         println!("\ttx.set.sender <ix> <address>\tSet <address>'s secret key in transaction with index <ix>");
         println!("\ttx.set.receiver <ix>\tSet <address> as the receiver in transaction with index <ix>"); 
         println!("\ttx.set.input <ix> <input>\t Set transaction data (<input>) in transaction with index <ix>");
+        println!("\ttx.set.value <ix> <value>\t Set transaction <value> in transaction with index <ix>");
         println!("\trun\t\t\tExecute test case");
         println!("\tsave <filename>\t\tSaves current session to json file");
         println!("\tload <filename>\t\tReload previous session from json file");
@@ -147,6 +150,29 @@ impl ReplCommand {
       }
       ctx.config.save();
       println!("Configured evm {}", ctx.config.evm);
+    }
+
+    fn cmd_env_set_difficulty(&self, ctx: &mut Context) {
+        if self.command_params.len() != 1 {
+            println!("Error: expected 1 parameter (difficulty)");
+            return;
+        }
+
+        ctx.env.set_current_difficulty(self.command_params[0].clone());
+    }
+
+    fn cmd_env_set_current_random(&self, ctx: &mut Context) {
+        if self.command_params.len() > 1 {
+            println!("Error: expected 0 or 1 parameters");
+            return;
+        }
+
+        let mut current_random = "0x0000000000000000000000000000000000000000000000000000000000020000".to_string();
+
+        if self.command_params.len() == 1 {
+            current_random = self.command_params[0].clone();
+        }
+        ctx.env.set_current_random(current_random);
     }
 
     fn cmd_add_account(&self, ctx: &mut Context) {
@@ -237,12 +263,8 @@ impl ReplCommand {
             let index = index.unwrap();
             let address = self.command_params[1].as_str();
             if ctx.txs.len() > (index as usize) && index >= 0 {
-                if ctx.address_exists(address) {
-                    ctx.txs[index as usize].set_receiver(address);
-                    println!("Receiver configured!");
-                } else {
-                    println!("Error: Address {} does not exists", address);
-                }
+                ctx.txs[index as usize].set_receiver(address);
+                println!("Receiver configured!");
             } else {
                 println!("Transaction not found!");
             }
@@ -272,8 +294,29 @@ impl ReplCommand {
         } else {
             println!("Index {} is not valid!", self.command_params[0]);
         }
+    }
 
-        let input_data = self.command_params[0].clone();
+    fn cmd_tx_set_value(&self, ctx: &mut Context) {
+        if self.check_params(2, "index, value").is_err() {
+            return;
+        }
+
+        let index = self.command_params[0].clone();
+        let index = index.parse::<i32>();
+
+        if index.is_ok() {
+            let index = index.unwrap();
+            let value = self.command_params[1].as_str();
+            if ctx.txs.len() > (index as usize) && index >= 0 {
+                ctx.txs[index as usize].set_value(value);
+                println!("Transaction value configured!");
+            } else {
+                println!("Transaction not found!");
+            }
+        } else {
+            println!("Index {} is not valid!", self.command_params[0]);
+        }
+
 
     }
 
@@ -311,11 +354,14 @@ impl ReplCommand {
             "alloc.add.default" => self.cmd_add_default_account(ctx),
             "addcode" => self.cmd_add_code(ctx),
             "env" => ctx.print_env(),
+            "env.set.difficulty" => self.cmd_env_set_difficulty(ctx),
+            "env.set.currentrandom" => self.cmd_env_set_current_random(ctx),
             "txs" => ctx.print_txs(),
             "tx.new" => self.cmd_new_tx(ctx),
             "tx.set.sender" => self.cmd_tx_set_sender(ctx),
             "tx.set.receiver" => self.cmd_tx_set_receiver(ctx),
             "tx.set.input" => self.cmd_tx_set_input(ctx),
+            "tx.set.value" => self.cmd_tx_set_value(ctx),
             "hf" => self.cmd_set_hard_fork(ctx),
             "t8n" => self.cmd_set_t8n(ctx),
             "evm" => self.cmd_set_evm(ctx),
