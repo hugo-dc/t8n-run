@@ -271,7 +271,6 @@ impl ReplCommand {
         } else {
             println!("Index {} is not valid!", self.command_params[0]);
         }
-
     }
 
     fn cmd_tx_set_input(&self, ctx: &mut Context) {

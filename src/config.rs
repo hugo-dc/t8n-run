@@ -26,7 +26,7 @@ impl Config {
         }
     }
 
-    pub fn new() -> Config {
+    pub fn default() -> Config {
         let home_dir = home::home_dir().expect("Cannot determine HOME directory");
         let config_file_path = String::from(home_dir.to_str().unwrap()) + "/.t8n-repl.json";
         let config_file = fs::File::open(config_file_path.as_str());
@@ -43,9 +43,9 @@ impl Config {
             }
             let config = Config {
                work_dir : working_dir_path.to_str().unwrap().to_string(),
-               t8n: String::from("/usr/bin/evm"),
+               t8n: String::from("/bin/evm"),
                evm : String::from(""),
-               hard_fork: String::from("")
+               hard_fork: String::from("Merge")
             };
 
             config.save();

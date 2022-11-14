@@ -148,15 +148,15 @@ pub struct Env {
 }
 
 impl Env {
-    pub fn new() -> Env {
+    pub fn default() -> Env {
         Env {
             current_base_fee : String::from("0x0a"),
             current_coinbase : String::from("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba"),
-            current_difficulty : String::from("0x020000"),
+            current_difficulty : String::from("0"),
             current_gas_limit : String::from("0x05f5e100"),
             current_number : String::from("0x01"),
             current_timestamp : String::from("0x03e8"),
-            current_random : None,
+            current_random : Some(String::from("0x0000000000000000000000000000000000000000000000000000000000020000")),
             previous_hash : String::from("0x5e20a0453cecd065ea59c37ac63e079ee08998b6045136a8ce6635c7912ec0b6")
         }
     }
@@ -186,9 +186,9 @@ pub struct Context {
 impl Context {
     pub fn default() -> Context {
         Context {
-            config: Config::new(),
+            config: Config::default(),
             alloc: HashMap::new(),
-            env: Env::new(),
+            env: Env::default(),
             txs: Vec::new()
         }
     }
