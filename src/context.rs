@@ -333,13 +333,25 @@ impl Context {
     pub fn run(&self) {
       let work_dir = &self.config.work_dir.clone();
 
+      // Delete previous executions (trace-*)
+      for entry in fs::read_dir(work_dir).unwrap() {
+          let ent = entry.unwrap();
+          let path = ent.path();
+          let fname = path.file_name().unwrap().to_str().unwrap();
+
+          if fname.starts_with("trace-") {
+              if fs::remove_file(path.to_str().unwrap()).is_err() {
+                  println!("Error: failed to remove previous trace {}", fname);
+              }
+          }
+      }
+
       // Save json files
       let alloc = &self.alloc.clone();
       let alloc_str = serde_json::to_string(&alloc).unwrap();
       let alloc_file_path = work_dir.clone() + "/alloc.json";
       let mut file = fs::File::create(alloc_file_path).unwrap();
       file.write(alloc_str.as_bytes()).expect("Error writing alloc.json file");
-
 
       let env = &self.env.clone();
       let env_str = serde_json::to_string(&env).unwrap();
