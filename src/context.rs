@@ -94,6 +94,10 @@ impl TransactionT8n {
   pub fn set_value(&mut self, value: &str) {
     self.value = value.to_string();
   }
+
+  pub fn set_gas(&mut self, gas: &str) {
+    self.gas = gas.to_string(); 
+  }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -202,7 +206,7 @@ impl Context {
 
     pub fn add_default_address(&mut self) -> Result<(), &'static str> {
         let default_alloc = Alloc {
-            balance: "0x989680".to_string(),
+            balance: "0x3b9aca00".to_string(),
             code: "".to_string(),
             nonce: "0x0".to_string(),
             storage: HashMap::new(),

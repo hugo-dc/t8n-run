@@ -11,6 +11,8 @@ struct Args {
     #[arg(short, long)]
     code: Option<String>,
     #[arg(short, long)]
+    gas: Option<String>,
+    #[arg(short, long)]
     evm: Option<String>,
     #[arg(short = 'f', long)]
     hard_fork: String,
@@ -72,6 +74,10 @@ fn main() {
             // Set input data
             ctx.txs[0].set_input(args.data.unwrap().as_str());
         }
+    }
+
+    if args.gas.is_some() {
+        ctx.txs[0].set_gas(&args.gas.unwrap());
     }
 
 
