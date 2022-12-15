@@ -17,7 +17,9 @@ struct Args {
     #[arg(short = 'f', long)]
     hard_fork: String,
     #[arg(short = 's', long)]
-    state_test: Option<String>
+    state_test: Option<String>,
+    #[arg(short, long)]
+    receiver: Option<String>
 }
 
 fn main() {
@@ -60,7 +62,12 @@ fn main() {
 
         if args.code.is_some() {
             // Create receiver account
-            let rec_address = String::from("0x0000000000000000000000000000000000000100");
+            let rec_address: String;
+            if args.receiver.is_some() {
+                rec_address = args.receiver.unwrap();
+            } else {
+                rec_address = String::from("0x0000000000000000000000000000000000000100");
+            }
             let _ = ctx.add_address(&rec_address);
             let mut account: Alloc = ctx.alloc.get(&rec_address).unwrap().clone();
             let _ = account.set_code(args.code.unwrap()); 
