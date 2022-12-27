@@ -42,6 +42,9 @@ fn main() {
     // Set Hard Fork
     ctx.config.hard_fork = args.hard_fork.clone();
 
+    // Set t8n
+    ctx.config.t8n = args.t8ntool.clone();
+
     // Set EVM if provided
     if args.evm.is_some() {
         ctx.config.evm = args.evm.unwrap().to_string();
@@ -86,7 +89,6 @@ fn main() {
     if args.gas.is_some() {
         ctx.txs[0].set_gas(&args.gas.unwrap());
     }
-
 
     ctx.run();
 }
